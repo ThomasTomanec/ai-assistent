@@ -1,0 +1,36 @@
+# Voice Assistant - BIP Configuration (openWakeWord Edition)
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  chunk_size: 1024
+  input_device: null
+  output_device: null
+
+wake_word:
+  keywords: ["alexa"]
+  threshold: 0.5
+
+stt:
+  engine: "whisper"
+  model: "small"
+  language: "cs"
+  cache_enabled: false
+
+tts:
+  engine: "piper"
+  voice: "cs_CZ-jirka-medium"
+  rate: 1.0
+  streaming: true
+
+response:
+  acknowledge_sound: "assets/sounds/acknowledge.wav"
+  error_sound: "assets/sounds/error.wav"
+  fallback_messages:
+    - "Omlouvám se, nerozuměl jsem"
+    - "Můžeš to zopakovat?"
+
+logging:
+  level: "INFO"
+  format: "console"
+  file: "logs/voice_assistant.log"

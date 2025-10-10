@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/*.log
+
+# Models
+src/wake_word/models/*
+src/stt/models/*
+src/tts/voices/*
+!**/.gitkeep
+
+# Config
+.env
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+.DS_Store

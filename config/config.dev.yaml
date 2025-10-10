@@ -1,0 +1,8 @@
+# Development overrides
+
+logging:
+  level: "DEBUG"
+  format: "console"
+
+stt:
+  model: "tiny"

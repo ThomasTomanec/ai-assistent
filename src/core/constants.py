@@ -1,0 +1,16 @@
+"""Global constants"""
+
+# Audio
+DEFAULT_SAMPLE_RATE = 16000
+DEFAULT_CHANNELS = 1
+DEFAULT_CHUNK_SIZE = 1024
+
+# Timeouts
+WAKE_WORD_TIMEOUT = 0.05
+SILENCE_TIMEOUT = 2.0
+STT_TIMEOUT = 10.0
+
+# Paths
+MODELS_DIR = "src/models"
+SOUNDS_DIR = "assets/sounds"
+LOGS_DIR = "logs"
