@@ -1,25 +1,37 @@
-"""Logging setup using structlog"""
-import sys
-import logging
+"""Structured logging setup"""
+
 import structlog
-from pathlib import Path
+import logging
+import sys
+from typing import Optional
 
-
-def setup_logging(level: str = "INFO", log_format: str = "console", log_file: str = None):
+def setup_logging(
+    level: str = "INFO",
+    log_format: str = "json",
+    log_file: Optional[str] = None
+):
     """Setup structured logging"""
+    
+    # Convert string level to logging constant
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    
+    # Configure standard logging
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
-        level=getattr(logging, level.upper())
+        level=log_level,
     )
     
+    # Configure structlog processors
     processors = [
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
     ]
     
+    # Add renderer based on format
     if log_format == "json":
         processors.append(structlog.processors.JSONRenderer())
     else:
@@ -27,15 +39,14 @@ def setup_logging(level: str = "INFO", log_format: str = "console", log_file: st
     
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.stdlib.BoundLogger,
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
     
+    # Optional: file handler
     if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(getattr(logging, level.upper()))
+        file_handler.setLevel(log_level)
         logging.root.addHandler(file_handler)

@@ -9,20 +9,20 @@ class IAudioInput(ABC):
     
     @abstractmethod
     def start_stream(self):
-        """Start audio stream"""
+        """Start continuous audio stream"""
         pass
     
     @abstractmethod
     async def read_chunk(self, stream) -> np.ndarray:
-        """Read audio chunk"""
+        """Read single audio chunk from stream"""
         pass
     
     @abstractmethod
     async def record_command(self, duration: float) -> np.ndarray:
-        """Record audio for duration"""
+        """Record audio for specified duration"""
         pass
     
     @abstractmethod
     def stop_stream(self):
-        """Stop audio stream"""
+        """Stop and close audio stream"""
         pass

@@ -1,58 +1,59 @@
 """Configuration management"""
-import os
-from pathlib import Path
-from typing import Any, Dict
-import yaml
-from dataclasses import dataclass
 
+import os
+import yaml
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, List
 
 @dataclass
 class AudioConfig:
+    """Audio configuration"""
     sample_rate: int
     channels: int
     chunk_size: int
-    input_device: str = None
-    output_device: str = None
-
+    input_device: Optional[int]
+    output_device: Optional[int]
 
 @dataclass
 class WakeWordConfig:
-    keywords: list
+    """Wake word configuration"""
+    keywords: List[str]
     threshold: float
-
 
 @dataclass
 class STTConfig:
+    """Speech-to-text configuration"""
     engine: str
     model: str
     language: str
     cache_enabled: bool
 
-
 @dataclass
 class TTSConfig:
+    """Text-to-speech configuration"""
     engine: str
     voice: str
     rate: float
     streaming: bool
 
-
 @dataclass
 class ResponseConfig:
-    acknowledge_sound: str
-    error_sound: str
-    fallback_messages: list
-
+    """Response configuration"""
+    acknowledge_sound: Optional[str]
+    error_sound: Optional[str]
+    fallback_messages: List[str]
 
 @dataclass
 class LoggingConfig:
+    """Logging configuration"""
     level: str
     format: str
-    file: str
-
+    file: Optional[str]
 
 @dataclass
 class Config:
+    """Main configuration"""
     audio: AudioConfig
     wake_word: WakeWordConfig
     stt: STTConfig
@@ -60,13 +61,14 @@ class Config:
     response: ResponseConfig
     logging: LoggingConfig
 
-
 def load_config(config_path: str = "config/config.yaml") -> Config:
     """Load configuration from YAML file"""
-    if not Path(config_path).exists():
+    path = Path(config_path)
+    
+    if not path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     
-    with open(config_path, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
     
     return Config(

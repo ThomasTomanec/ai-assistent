@@ -3,15 +3,14 @@
 audio:
   sample_rate: 16000
   channels: 1
-  chunk_size: 1024
+  chunk_size: 1280  # ← ZMĚNĚNO z 1024 na 1280
   input_device: null
   output_device: null
 
 wake_word:
   keywords:
     - alexa
-  threshold: 0.3  # Sníženo z 0.5 na 0.3 pro lepší citlivost
-
+  threshold: 0.3
 
 stt:
   engine: "whisper"
