@@ -1,9 +1,9 @@
-"""Voice Assistant - BIP Phase (Testing Mode)"""
+"""Voice Assistant - BIP Phase (Voice Mode)"""
+
 import asyncio
 import os
 import structlog
 from dotenv import load_dotenv
-
 from src.core.config import load_config
 from src.core.logger import setup_logging
 from src.audio.capture import AudioCapture
@@ -16,7 +16,6 @@ from src.response.handler import ResponseHandler
 
 load_dotenv()
 logger = structlog.get_logger()
-
 
 class VoiceAssistant:
     """Main Voice Assistant class"""
@@ -32,12 +31,13 @@ class VoiceAssistant:
             sample_rate=config.audio.sample_rate,
             channels=config.audio.channels,
             chunk_size=config.audio.chunk_size,
-            device=config.audio.input_device
+            device=config.audio.input_device,
+            gain=2.5  # Zvýšená citlivost mikrofonu (2.5x)
         )
         
         self.wake_word = OpenWakeWordDetector(
             keywords=config.wake_word.keywords,
-            threshold=config.wake_word.threshold
+            threshold=0.3  # Fixed at 0.3 for better detection
         )
         
         self.stt = WhisperSTT(
@@ -59,7 +59,6 @@ class VoiceAssistant:
     async def start(self):
         """Start the assistant"""
         logger.info("voice_assistant_starting")
-        
         try:
             await self.run()
         except KeyboardInterrupt:
@@ -71,45 +70,92 @@ class VoiceAssistant:
             await self.cleanup()
     
     async def run(self):
-        """Main loop - TESTING MODE"""
+        """Main loop - VOICE MODE with Wake Word"""
         logger.info("voice_assistant_ready")
         print("\n" + "="*60)
-        print("🎤 TESTING MODE - Press Enter to activate")
+        print("🎤 VOICE MODE - Say 'Alexa' to activate")
         print("="*60 + "\n")
+        
+        # Start audio capture stream
+        try:
+            audio_stream = self.audio_capture.start_stream()
+        except Exception as e:
+            logger.error("failed_to_start_audio_stream", error=str(e))
+            print(f"❌ Failed to start microphone: {e}")
+            return
         
         while True:
             try:
-                print("Press Enter to start...")
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, input)
+                logger.info("listening_for_wake_word")
+                print("👂 Listening for wake word...")
                 
-                logger.info("activated")
-                print("\n✨ Listening for command...\n")
+                # Wait for wake word detection
+                detected = await self._wait_for_wake_word(audio_stream)
                 
-                command_text = await loop.run_in_executor(
-                    None, 
-                    lambda: input("Type your command: ")
-                )
-                
-                if not command_text or len(command_text.strip()) == 0:
-                    print("❌ Empty command\n")
-                    continue
-                
-                logger.info("command_received", text=command_text)
-                print(f"\n📝 You: {command_text}")
-                
-                # Delegate to command handler
-                response = self.process_command(command_text)
-                
-                logger.info("responding", response=response)
-                print(f"🤖 Bot: {response}\n")
-                print("-"*60 + "\n")
-                
+                if detected:
+                    logger.info("wake_word_detected")
+                    print("\n✨ Wake word detected!")
+                    print("💬 Say your command now (5 seconds)...\n")
+                    
+                    # Small delay to avoid capturing the wake word
+                    await asyncio.sleep(0.3)
+                    
+                    # Capture audio after wake word (zvýšeno na 5 sekund)
+                    audio_data = await self.audio_capture.record_command(duration=5.0)
+                    
+                    # Show recording feedback
+                    print("🔄 Processing your command...\n")
+                    
+                    # Fixed: Proper numpy array check
+                    if audio_data is None or len(audio_data) == 0:
+                        print("❌ No audio captured\n")
+                        continue
+                    
+                    # Convert speech to text
+                    logger.info("transcribing_audio")
+                    command_text = await self.stt.transcribe(audio_data)
+                    
+                    if not command_text or len(command_text.strip()) == 0:
+                        print("❌ No command detected\n")
+                        print("-"*60 + "\n")
+                        # Cooldown period
+                        await asyncio.sleep(2)
+                        continue
+                    
+                    # Show what was heard
+                    logger.info("command_received", text=command_text)
+                    print(f"📝 You said: \"{command_text}\"")
+                    print(f"⏱️  Processing...\n")
+                    
+                    # Process command
+                    response = self.process_command(command_text)
+                    
+                    logger.info("responding", response=response)
+                    print(f"🤖 Bot: {response}\n")
+                    print("-"*60 + "\n")
+                    
+                    # Cooldown to prevent false triggers from bot's response
+                    await asyncio.sleep(2)
+                    
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                logger.error("processing_error", error=str(e))
+                logger.error("processing_error", error=str(e), exc_info=True)
                 print(f"❌ Error: {e}\n")
+                # Cooldown after error
+                await asyncio.sleep(1)
+    
+    async def _wait_for_wake_word(self, audio_stream):
+        """Wait for wake word detection"""
+        while True:
+            try:
+                audio_chunk = await self.audio_capture.read_chunk(audio_stream)
+                if self.wake_word.detect(audio_chunk):
+                    return True
+                await asyncio.sleep(0.01)  # Prevent CPU hogging
+            except Exception as e:
+                logger.error("wake_word_detection_error", error=str(e))
+                await asyncio.sleep(0.1)
     
     def process_command(self, text: str) -> str:
         """Delegate command processing to CommandHandler"""
@@ -118,7 +164,10 @@ class VoiceAssistant:
     async def cleanup(self):
         """Cleanup resources"""
         logger.info("cleaning_up")
-
+        try:
+            self.audio_capture.stop_stream()
+        except Exception as e:
+            logger.error("cleanup_error", error=str(e))
 
 async def main():
     """Main entry point"""
@@ -130,10 +179,9 @@ async def main():
             log_file=config.logging.file
         )
         
-        logger.info("application_starting", version="0.1.0", phase="BIP-TEST")
-        
-        print("\n🤖 Voice Assistant - Testing Mode")
-        print("ℹ️  Enter = wake word | Text = voice\n")
+        logger.info("application_starting", version="0.1.0", phase="VOICE-MODE")
+        print("\n🤖 Voice Assistant - Voice Mode")
+        print("ℹ️  Say wake word to activate\n")
         
         assistant = VoiceAssistant(config)
         await assistant.start()
@@ -143,7 +191,6 @@ async def main():
     except Exception as e:
         print(f"❌ Error: {e}")
         raise
-
 
 if __name__ == "__main__":
     try:

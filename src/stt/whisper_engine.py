@@ -1,54 +1,128 @@
-"""Whisper STT engine (placeholder - install mlx-whisper)"""
+"""Speech-to-text using Whisper"""
 import asyncio
 import numpy as np
 import structlog
-from src.stt.engine import STTEngine
-from src.core.exceptions import STTError
+import sys
+import platform
 
 logger = structlog.get_logger()
 
+# Platform detection
+IS_APPLE_SILICON = (
+    platform.machine() == "arm64" and 
+    sys.platform == "darwin"
+)
 
-class WhisperSTT(STTEngine):
-    """Whisper STT - TODO: Install mlx-whisper"""
+class WhisperSTT:
+    """Speech-to-text using Whisper (MLX on M1, faster-whisper on others)"""
     
-    def __init__(self, model_size: str = "small", language: str = "cs"):
+    def __init__(self, model_size: str = "base", language: str = "en"):
+        """
+        Initialize Whisper STT
+        
+        Args:
+            model_size: Model size (tiny, base, small, medium, large)
+            language: Language code (en, cs, etc.)
+        """
         self.model_size = model_size
         self.language = language
         self.model = None
         
+        # Load appropriate backend based on platform
+        if IS_APPLE_SILICON:
+            self._init_mlx_whisper()
+        else:
+            self._init_faster_whisper()
+        
         logger.info("whisper_stt_initialized", 
-                   model_size=model_size, language=language)
+                   model=model_size, 
+                   language=language,
+                   backend=self.backend)
     
-    async def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe audio - PLACEHOLDER"""
+    def _init_mlx_whisper(self):
+        """Initialize MLX Whisper for Apple Silicon"""
         try:
-            if self.model is None:
-                await self._load_model()
+            import mlx_whisper
+            self.mlx_whisper = mlx_whisper
+            self.backend = "mlx"
+            # Correct MLX community model path with -mlx suffix
+            self.model_path = f"mlx-community/whisper-{self.model_size}-mlx"
+            logger.info("mlx_whisper_initialized", model=self.model_path)
+        except ImportError:
+            logger.error("mlx_whisper_not_installed")
+            raise ImportError("Install mlx-whisper: pip install mlx-whisper")
+    
+    def _init_faster_whisper(self):
+        """Initialize faster-whisper for Linux/other platforms"""
+        try:
+            from faster_whisper import WhisperModel
+            self.model = WhisperModel(
+                self.model_size, 
+                device="cpu",
+                compute_type="int8"
+            )
+            self.backend = "faster-whisper"
+            logger.info("faster_whisper_initialized")
+        except ImportError:
+            logger.error("faster_whisper_not_installed")
+            raise ImportError("Install faster-whisper: pip install faster-whisper")
+    
+    async def transcribe(self, audio_data: np.ndarray) -> str:
+        """
+        Transcribe audio to text
+        
+        Args:
+            audio_data: Audio data (int16 or float32)
             
+        Returns:
+            Transcribed text
+        """
+        try:
+            # Convert to float32 if needed (both backends expect this)
+            if audio_data.dtype == np.int16:
+                audio_data = audio_data.astype(np.float32) / 32768.0
+            
+            # Run transcription in executor to avoid blocking
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, self._transcribe_sync, audio)
             
-            logger.info("transcription_completed", text=result)
+            if self.backend == "mlx":
+                result = await loop.run_in_executor(
+                    None,
+                    self._transcribe_mlx,
+                    audio_data
+                )
+            else:
+                result = await loop.run_in_executor(
+                    None,
+                    self._transcribe_faster,
+                    audio_data
+                )
+            
+            logger.info("transcription_complete", text=result[:100])
             return result
             
         except Exception as e:
             logger.error("transcription_error", error=str(e))
-            raise STTError(f"Transcription failed: {e}")
+            return ""
     
-    async def _load_model(self):
-        """Load Whisper model"""
-        logger.info("loading_whisper_model")
-        # TODO: Uncomment when mlx-whisper installed
-        # import mlx_whisper
-        # self.model = mlx_whisper.load_model(f"mlx-community/whisper-{self.model_size}-mlx")
-        logger.warning("whisper_model_not_loaded", 
-                      message="Install: pip install mlx-whisper")
+    def _transcribe_mlx(self, audio_data: np.ndarray) -> str:
+        """Transcribe using MLX Whisper"""
+        # MLX Whisper directly transcribes without loading model separately
+        result = self.mlx_whisper.transcribe(
+            audio_data,
+            path_or_hf_repo=self.model_path,
+            language=self.language
+        )
+        return result["text"].strip()
     
-    def _transcribe_sync(self, audio: np.ndarray) -> str:
-        """Synchronous transcription"""
-        # TODO: Uncomment when model loaded
-        # result = self.model.transcribe(audio, language=self.language)
-        # return result['text'].strip()
-        
-        # Placeholder
-        return "test transcription - install mlx-whisper"
+    def _transcribe_faster(self, audio_data: np.ndarray) -> str:
+        """Transcribe using faster-whisper"""
+        segments, _ = self.model.transcribe(
+            audio_data,
+            language=self.language,
+            beam_size=1,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
+        text = " ".join([segment.text for segment in segments])
+        return text.strip()
