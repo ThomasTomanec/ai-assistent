@@ -42,7 +42,7 @@ class ConsoleUI:
         """Interaction cycle - CLEAR FLOW"""
 
         # 1. WAITING FOR WAKE WORD
-        print(f"💤 Say '{self.wake_word_name}' to activate...")
+        print(f"💤  Say '{self.wake_word_name}' to activate...")
         detected = await self.orchestrator.wait_for_wake_word()
 
         if not detected:
@@ -50,7 +50,7 @@ class ConsoleUI:
 
         # 2. WAKE WORD DETECTED - WAITING FOR COMMAND
         print(f"\n✨ {self.wake_word_name} activated!")
-        print("🎙️  Listening for command...\n")
+        print("🎙️ Listening for command...\n")
 
         # 3. CAPTURE COMMAND
         command_text = await self.orchestrator.capture_command()

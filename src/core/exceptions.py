@@ -1,25 +1,43 @@
-"""Custom exceptions for Voice Assistant"""
+"""
+Custom exceptions for the voice assistant application
+"""
 
-class VoiceAssistantException(Exception):
-    """Base exception for Voice Assistant"""
+
+class VoiceAssistantError(Exception):
+    """Base exception for voice assistant errors"""
     pass
 
-class AudioCaptureError(VoiceAssistantException):
-    """Raised when audio capture fails"""
+
+class ConfigurationError(VoiceAssistantError):
+    """Raised when configuration is invalid or missing"""
     pass
 
-class WakeWordError(VoiceAssistantException):
+
+class ContainerInitializationError(VoiceAssistantError):
+    """Raised when dependency injection container fails to initialize"""
+    pass
+
+
+class AudioError(VoiceAssistantError):
+    """Raised when audio input/output fails"""
+    pass
+
+
+class WakeWordError(VoiceAssistantError):
     """Raised when wake word detection fails"""
     pass
 
-class STTError(VoiceAssistantException):
-    """Raised when STT fails"""
+
+class STTError(VoiceAssistantError):
+    """Raised when speech-to-text conversion fails"""
     pass
 
-class TTSError(VoiceAssistantException):
-    """Raised when TTS fails"""
+
+class AIError(VoiceAssistantError):
+    """Raised when AI model processing fails"""
     pass
 
-class ConfigurationError(VoiceAssistantException):
-    """Raised when configuration is invalid"""
+
+class LocationError(VoiceAssistantError):
+    """Raised when location detection fails"""
     pass

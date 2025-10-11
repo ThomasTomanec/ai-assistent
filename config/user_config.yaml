@@ -6,7 +6,7 @@ user:
 # LOCATION (MANUAL - Radkov)
 # ========================================
 location:
-  auto_detect: false  # ZMĚNA: Vypnuto auto-detect
+  auto_detect: false  # Vypnuto auto-detect
 
   # Manual location
   manual:
@@ -65,12 +65,18 @@ models:
     max_tokens: 150
     streaming: true
 
+    # Performance tuning
+    internet_check_timeout: 3.0      # Timeout pro internet check (sekundy)
+    internet_cache_duration: 60      # Cache internet check (sekundy)
+    max_retries: 3                   # Max počet retry pokusů
+
   local:
     provider: "ollama"
     model: "llama3.2:3b"
     temperature: 0.7
     max_tokens: 150
     url: "http://localhost:11434"
+    timeout: 15.0                    # Request timeout (sekundy)
 
 # ========================================
 # ROUTING STRATEGY
@@ -96,12 +102,26 @@ routing:
 # AUDIO CONFIGURATION
 # ========================================
 audio:
+  sample_rate: 16000
+  channels: 1
+  chunk_size: 1280
+  gain: 6.0
+
   wake_word_models:
     - "alexa"
-  sample_rate: 16000
-  gain: 6.0
 
   stt:
     primary: "groq"
     fallback: "whisper"
+    whisper_model: "small"
     language: "cs"
+
+    # STT Advanced Configuration
+    groq_model: "whisper-large-v3-turbo"     # Groq Whisper model
+    deepgram_model: "nova-2"                 # Deepgram model
+    deepgram_timeout: 40.0                   # Deepgram request timeout (sekundy)
+    max_retries: 3                           # Max retry attempts pro všechny STT
+
+    # Whisper Specific Settings
+    whisper_beam_size: 1                     # Beam size (1 = fastest, 5 = better quality)
+    whisper_vad_filter: true                 # Voice Activity Detection (remove silence)

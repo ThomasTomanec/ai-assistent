@@ -1,15 +1,24 @@
 """
 Hybrid AI Handler s inteligentním 5-fázovým routerem
 Cloud-primary strategie: Rychlost + Soukromí + Offline fallback
+Vylepšeno: lepší error handling, custom exceptions
 """
 
 import structlog
-from src.core.ports.i_command_handler import ICommandHandler  # <-- OPRAVENO
-from src.infrastructure.adapters.ai.local_model_handler import LocalModelHandler
-from src.infrastructure.adapters.ai.cloud_model_handler import CloudModelHandler
-from src.core.routing.intelligent_router import IntelligentRouter, RoutingDecision  # <-- OPRAVENO
+from src.core.ports.i_command_handler import ICommandHandler
+from src.infrastructure.adapters.ai.local_model_handler import (
+    LocalModelHandler,
+    OllamaUnavailableError
+)
+from src.infrastructure.adapters.ai.cloud_model_handler import (
+    CloudModelHandler,
+    CloudProviderUnavailableError
+)
+from src.core.routing.intelligent_router import IntelligentRouter, RoutingDecision
+from src.core.exceptions import AIError
 
 logger = structlog.get_logger()
+
 
 class HybridAIHandler(ICommandHandler):
     """
@@ -59,50 +68,82 @@ class HybridAIHandler(ICommandHandler):
             session_context_length=0
         )
 
+        # Clarification needed
         if decision == RoutingDecision.ASK_CLARIFICATION:
             logger.info("asking_clarification", metadata=metadata)
             return "Omlouvám se, nerozuměl jsem správně. Můžeš to prosím zopakovat?"
 
+        # Force local (PII detected)
         if decision == RoutingDecision.FORCE_LOCAL:
             logger.info("routing_to_local_privacy",
                        reason="PII_detected",
                        metadata=metadata)
 
-            response = self.local_handler.process(text)
+            return self._process_local_only(text)
 
-            if response.startswith("Error") or response.startswith("error"):
-                logger.error("local_handler_failed_privacy_mode",
-                            reason="error_response",
-                            no_cloud_fallback="privacy_protection")
-                return "Omlouvám se, nastala chyba při zpracování dotazu. Zkus to prosím znovu."
+        # Cloud-primary strategy for non-PII queries
+        return self._process_cloud_with_fallback(text, metadata)
 
-            return response
-
-        # Cloud-primary strategie pro non-PII queries
+    def _process_local_only(self, text: str) -> str:
+        """
+        Process with local model only (PII protection).
+        No cloud fallback for privacy.
+        """
         try:
-            logger.info("routing_to_cloud",
-                       decision=decision.value,
-                       metadata=metadata)
-            response = self.cloud_handler.process(text)
+            response = self.local_handler.process(text)
+            logger.info("local_processing_success_privacy_mode")
             return response
 
-        except Exception as e:
-            logger.warning("cloud_failed_attempting_local_fallback",
-                          error=str(e),
-                          fallback_strategy="local")
+        except OllamaUnavailableError:
+            logger.error("local_handler_unavailable_privacy_mode",
+                        reason="ollama_not_running",
+                        no_cloud_fallback="privacy_protection")
+            return "Omlouvám se, lokální zpracování není momentálně dostupné. " \
+                   "Z důvodu ochrany soukromí nemohu použít cloud. Zkus to prosím později."
 
-            try:
-                response = self.local_handler.process(text)
+        except AIError as e:
+            logger.error("local_handler_failed_privacy_mode",
+                        error=str(e),
+                        no_cloud_fallback="privacy_protection")
+            return "Omlouvám se, nastala chyba při zpracování dotazu. Zkus to prosím znovu."
 
-                if response.startswith("Error") or response.startswith("error"):
-                    logger.error("local_fallback_also_failed",
-                                reason="error_response")
-                    return "Omlouvám se, momentálně nejsem schopen odpovědět. Zkus to prosím později."
+    def _process_cloud_with_fallback(self, text: str, metadata: dict) -> str:
+        """
+        Process with cloud, fallback to local if cloud fails.
+        """
+        # Try cloud first
+        try:
+            logger.info("routing_to_cloud", metadata=metadata)
+            response = self.cloud_handler.process(text)
+            logger.info("cloud_processing_success")
+            return response
 
-                logger.info("local_fallback_successful")
-                return response
+        except CloudProviderUnavailableError:
+            logger.warning("cloud_unavailable_attempting_local_fallback",
+                          reason="internet_not_available")
+            return self._fallback_to_local(text)
 
-            except Exception as local_error:
-                logger.error("local_fallback_exception",
-                            error=str(local_error))
-                return "Omlouvám se, momentálně nejsem schopen odpovědět. Zkus to prosím později."
+        except AIError as e:
+            logger.warning("cloud_processing_failed_attempting_local_fallback",
+                          error=str(e))
+            return self._fallback_to_local(text)
+
+    def _fallback_to_local(self, text: str) -> str:
+        """
+        Fallback to local model when cloud fails.
+        """
+        try:
+            logger.info("attempting_local_fallback")
+            response = self.local_handler.process(text)
+            logger.info("local_fallback_successful")
+            return response
+
+        except OllamaUnavailableError:
+            logger.error("local_fallback_unavailable",
+                        reason="ollama_not_running")
+            return "Omlouvám se, momentálně nejsem schopen odpovědět. " \
+                   "Cloud i lokální AI jsou nedostupné. Zkus to prosím později."
+
+        except AIError as e:
+            logger.error("local_fallback_also_failed", error=str(e))
+            return "Omlouvám se, momentálně nejsem schopen odpovědět. Zkus to prosím později."

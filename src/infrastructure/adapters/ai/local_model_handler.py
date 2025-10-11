@@ -1,13 +1,21 @@
 """
 Lokální AI model handler s Ollama (Llama 3.2 3B)
+Vylepšeno: config z UserConfig, lepší error handling
 """
 
 import structlog
 import httpx
 from typing import Optional
 from src.core.ports.i_command_handler import ICommandHandler
+from src.core.exceptions import AIError
 
 logger = structlog.get_logger()
+
+
+class OllamaUnavailableError(AIError):
+    """Raised when Ollama server is not available"""
+    pass
+
 
 class LocalModelHandler(ICommandHandler):
     """
@@ -15,35 +23,51 @@ class LocalModelHandler(ICommandHandler):
 
     Automaticky detekuje jestli Ollama běží:
     - Pokud ANO → použije lokální model (rychlé!)
-    - Pokud NE → vrátí placeholder (eskaluje do cloudu)
+    - Pokud NE → raise exception (caller rozhodne co dělat)
     """
 
-    def __init__(self, model: str = "llama3.2:3b", ollama_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "llama3.2:3b",
+                 ollama_url: str = "http://localhost:11434",
+                 user_config=None):
         """
         Args:
-            model: Ollama model name (llama3.2:3b, qwen2.5:1.5b, atd.)
+            model: Ollama model name
             ollama_url: URL Ollama API serveru
+            user_config: UserConfig instance pro načítání konfigurace
         """
-        self.model = model
-        self.ollama_url = ollama_url
-        self.api_endpoint = f"{ollama_url}/api/generate"
+        self.user_config = user_config
+
+        # Load config
+        if user_config:
+            self.model = user_config.get('models.local.model', model)
+            self.ollama_url = user_config.get('models.local.url', ollama_url)
+            self.temperature = user_config.get('models.local.temperature', 0.7)
+            self.max_tokens = user_config.get('models.local.max_tokens', 150)
+            self.timeout = user_config.get('models.local.timeout', 15.0)
+        else:
+            self.model = model
+            self.ollama_url = ollama_url
+            self.temperature = 0.7
+            self.max_tokens = 150
+            self.timeout = 15.0
+
+        self.api_endpoint = f"{self.ollama_url}/api/generate"
         self.ollama_available = self._check_ollama_available()
 
         if self.ollama_available:
             logger.info("local_model_handler_initialized",
-                       model=model,
+                       model=self.model,
                        status="✅ Ollama running",
-                       url=ollama_url)
+                       url=self.ollama_url)
         else:
             logger.warning("local_model_handler_initialized",
-                          model=model,
-                          status="⚠️ Ollama not running - will fallback to cloud",
+                          model=self.model,
+                          status="⚠️ Ollama not running",
                           hint="Spusť: docker start voice-assistant-ollama")
 
     def _check_ollama_available(self) -> bool:
         """Zkontroluj, zda je Ollama server dostupný"""
         try:
-            # ✅ OPRAVA: timeout 2.0 → 5.0
             response = httpx.get(f"{self.ollama_url}/api/tags", timeout=5.0)
             if response.status_code == 200:
                 models = response.json().get("models", [])
@@ -56,27 +80,31 @@ class LocalModelHandler(ICommandHandler):
             logger.warning("ollama_server_not_running",
                          message="Ollama není spuštěná. Spusť: docker start voice-assistant-ollama")
             return False
-        except Exception as e:
+        except (httpx.RequestError, httpx.TimeoutException) as e:
             logger.warning("ollama_check_failed", error=str(e))
             return False
 
     def process(self, text: str) -> str:
         """
         Zpracuje jednoduchý dotaz lokálně pomocí Ollama.
-        Pokud Ollama není dostupná, vrátí placeholder pro eskalaci.
 
         Args:
             text: Text příkazu
 
         Returns:
-            Odpověď z lokálního modelu nebo placeholder
-        """
-        # Pokud Ollama není dostupná, vrať placeholder (automaticky eskaluje do cloudu)
-        if not self.ollama_available:
-            logger.info("ollama_not_available_fallback")
-            return "[Lokální AI není dostupná - použiji cloud]"
+            Odpověď z lokálního modelu
 
-        logger.info("processing_with_local_ollama", text=text[:100], model=self.model)
+        Raises:
+            OllamaUnavailableError: Pokud Ollama není dostupná
+        """
+        # Pokud Ollama není dostupná, raise exception
+        if not self.ollama_available:
+            logger.warning("ollama_not_available")
+            raise OllamaUnavailableError("Ollama server is not running")
+
+        logger.info("processing_with_local_ollama",
+                   text=text[:100],
+                   model=self.model)
 
         try:
             # System prompt pro hlasového asistenta
@@ -93,7 +121,7 @@ Dotaz uživatele: {text}
 Odpověď:"""
 
             # HTTP request na Ollama API
-            with httpx.Client(timeout=15.0) as client:
+            with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
                     self.api_endpoint,
                     json={
@@ -101,8 +129,8 @@ Odpověď:"""
                         "prompt": prompt,
                         "stream": False,
                         "options": {
-                            "temperature": 0.7,
-                            "num_predict": 150,  # Max 150 tokenů pro stručnost
+                            "temperature": self.temperature,
+                            "num_predict": self.max_tokens,
                             "top_k": 40,
                             "top_p": 0.9,
                         }
@@ -130,15 +158,17 @@ Odpověď:"""
                 logger.error("ollama_api_error",
                            status=response.status_code,
                            error=response.text[:200])
-                return "[Lokální AI vrátila chybu - zkusím cloud]"
+                raise AIError(f"Ollama API error: {response.status_code}")
 
         except httpx.ReadTimeout:
-            logger.error("ollama_timeout", model=self.model)
-            return "[Lokální AI je příliš pomalá - zkusím cloud]"
+            logger.error("ollama_timeout", model=self.model, timeout=self.timeout)
+            raise AIError(f"Ollama timeout after {self.timeout}s")
         except httpx.ConnectError:
             logger.error("ollama_connection_failed")
             self.ollama_available = False  # Označ jako nedostupnou
-            return "[Lokální AI přestala běžet - zkusím cloud]"
+            raise OllamaUnavailableError("Ollama connection failed")
         except Exception as e:
-            logger.error("local_model_error", error=str(e), error_type=type(e).__name__)
-            return "[Lokální AI selhala - zkusím cloud]"
+            logger.error("local_model_error",
+                        error=str(e),
+                        error_type=type(e).__name__)
+            raise AIError(f"Local model processing failed: {e}") from e
