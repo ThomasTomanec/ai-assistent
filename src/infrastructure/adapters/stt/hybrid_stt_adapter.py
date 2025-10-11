@@ -1,64 +1,41 @@
-import asyncio
-import numpy as np
+"""Hybrid STT with Groq primary, Whisper fallback"""
+
 import structlog
-import httpx
 from src.core.ports.i_stt_engine import ISTTEngine
-from src.infrastructure.adapters.stt.deepgram_adapter import DeepgramAdapter
+from src.infrastructure.adapters.stt.groq_whisper_adapter import GroqWhisperAdapter
 from src.infrastructure.adapters.stt.whisper_adapter import WhisperAdapter
 
 logger = structlog.get_logger()
 
 class HybridSTTAdapter(ISTTEngine):
     """
-    Hybrid STT adapter:
-    - Primary: Deepgram (cloud)
-    - Fallback: Whisper (offline)
+    Hybrid STT: Groq Whisper primary (rychlý, zdarma), lokální Whisper fallback
     """
-    def __init__(
-        self,
-        deepgram_api_key: str,
-        whisper_model: str = "small",
-        language: str = "cs"
-    ):
-        self.language = language
-        try:
-            self.cloud = DeepgramAdapter(deepgram_api_key, language)
-            self.has_cloud = True
-            logger.info("hybrid_stt_cloud_enabled")
-        except Exception as e:
-            self.has_cloud = False
-            logger.warning("hybrid_stt_cloud_disabled", error=str(e))
-        self.local = WhisperAdapter(whisper_model, language)
-        logger.info(
-            "hybrid_stt_initialized",
-            primary="deepgram" if self.has_cloud else "whisper",
-            fallback="whisper"
-        )
-
-    async def transcribe(self, audio_data: np.ndarray) -> str:
-        """
-        Transcribe with fallback logic.
-        1. Try Deepgram (if available)
-        2. If error/empty → use Whisper
-        """
-        if self.has_cloud:
+    
+    def __init__(self, groq_api_key: str = "", whisper_model: str = "small", language: str = "cs"):
+        self.groq_enabled = bool(groq_api_key)
+        
+        if self.groq_enabled:
+            self.primary = GroqWhisperAdapter(api_key=groq_api_key, language=language)
+            logger.info("hybrid_stt_groq_enabled")
+        
+        # Lokální Whisper jako fallback
+        self.fallback = WhisperAdapter(model_size=whisper_model, language=language)
+        
+        logger.info("hybrid_stt_initialized", primary="groq" if self.groq_enabled else "local", fallback="whisper")
+    
+    async def transcribe(self, audio_data: bytes) -> str:
+        # Zkus primární (Groq)
+        if self.groq_enabled:
             try:
-                logger.info("trying_cloud_stt")
-                text = await self.cloud.transcribe(audio_data)
-                if text and len(text.strip()) > 0:
-                    logger.info("cloud_stt_success", length=len(text))
+                logger.info("trying_groq_stt")
+                text = await self.primary.transcribe(audio_data)
+                if text:
+                    logger.info("groq_stt_success", length=len(text))
                     return text
-                else:
-                    logger.warning("cloud_returned_empty")
-            except httpx.ConnectError:
-                logger.warning("cloud_stt_connection_failed_using_local")
             except Exception as e:
-                logger.warning("cloud_stt_error_using_local", error=str(e))
-        logger.info("using_local_stt")
-        text = await self.local.transcribe(audio_data)
-        logger.info("local_stt_complete", length=len(text))
-        return text
-
-    def is_online(self) -> bool:
-        """Check if cloud STT is available"""
-        return self.has_cloud
+                logger.warning("groq_stt_failed", error=str(e))
+        
+        # Fallback na lokální Whisper
+        logger.info("using_local_whisper_fallback")
+        return await self.fallback.transcribe(audio_data)

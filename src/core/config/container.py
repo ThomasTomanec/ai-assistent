@@ -7,7 +7,7 @@ from src.core.logging.logger import setup_logging
 from src.infrastructure.adapters.audio.sounddevice_capture import SoundDeviceCapture
 from src.infrastructure.adapters.wake_word.openwakeword_adapter import OpenWakeWordAdapter
 from src.infrastructure.adapters.stt.hybrid_stt_adapter import HybridSTTAdapter
-from src.infrastructure.adapters.commands.simple_handler import SimpleCommandHandler
+from src.infrastructure.adapters.ai.hybrid_handler import HybridAIHandler
 from src.application.services.assistant_orchestrator import AssistantOrchestrator
 from src.interfaces.cli.console_ui import ConsoleUI
 import structlog
@@ -59,23 +59,33 @@ class Container:
         return self._wake_word_detector
 
     def stt_engine(self):
-        """Hybrid STT: Deepgram primary, Whisper fallback"""
+        """Hybrid STT: Groq Whisper primary, lokální Whisper fallback"""
         if not self._stt_engine:
-            deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
+            groq_key = os.getenv("GROQ_API_KEY", "")
             self._stt_engine = HybridSTTAdapter(
-                deepgram_api_key=deepgram_key,
+                groq_api_key=groq_key,
                 whisper_model=self.config.stt.model,
                 language=self.config.stt.language
             )
-            if deepgram_key:
-                logger.info("stt_mode", mode="hybrid_cloud_primary")
+            if groq_key:
+                logger.info("stt_mode", mode="hybrid_groq_primary")
             else:
                 logger.info("stt_mode", mode="local_only_no_api_key")
         return self._stt_engine
 
     def command_handler(self):
         if not self._command_handler:
-            self._command_handler = SimpleCommandHandler()
+            # Hybrid AI Handler s inteligentním routerem
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            user_preference = os.getenv("AI_PREFERENCE", None)  # 'local_only', 'cloud_only', or None
+            
+            self._command_handler = HybridAIHandler(
+                api_key=openai_api_key,
+                user_preference=user_preference
+            )
+            logger.info("hybrid_ai_handler_initialized", 
+                       router="intelligent_5phase",
+                       preference=user_preference)
         return self._command_handler
 
     def orchestrator(self):

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: voice-assistant-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - assistant-network
+
+volumes:
+  ollama_data:
+    name: voice_assistant_ollama_data
+
+networks:
+  assistant-network:
+    name: voice_assistant_network
