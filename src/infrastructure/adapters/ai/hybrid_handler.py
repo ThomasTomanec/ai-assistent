@@ -4,10 +4,10 @@ Cloud-primary strategie: Rychlost + Soukromí + Offline fallback
 """
 
 import structlog
-from src.core.ports.i_command_handler import ICommandHandler
+from src.core.ports.i_command_handler import ICommandHandler  # <-- OPRAVENO
 from src.infrastructure.adapters.ai.local_model_handler import LocalModelHandler
 from src.infrastructure.adapters.ai.cloud_model_handler import CloudModelHandler
-from src.core.routing.intelligent_router import IntelligentRouter, RoutingDecision
+from src.core.routing.intelligent_router import IntelligentRouter, RoutingDecision  # <-- OPRAVENO
 
 logger = structlog.get_logger()
 
@@ -21,15 +21,18 @@ class HybridAIHandler(ICommandHandler):
     - Fáze 5: Cloud fail → Local fallback (offline režim)
     """
 
-    def __init__(self, api_key: str = None, user_preference: str = None):
+    def __init__(self, cloud_handler: CloudModelHandler,
+                 local_handler: LocalModelHandler,
+                 user_preference: str = None):
         """
         Args:
-            api_key: OpenAI API klíč pro cloud
+            cloud_handler: Cloudový AI handler (s context builderem)
+            local_handler: Lokální AI handler
             user_preference: 'local_only', 'cloud_only', nebo None (auto)
         """
         self.router = IntelligentRouter(user_preference=user_preference)
-        self.local_handler = LocalModelHandler()
-        self.cloud_handler = CloudModelHandler(api_key=api_key, streaming=True)
+        self.local_handler = local_handler
+        self.cloud_handler = cloud_handler
         logger.info("hybrid_ai_handler_initialized",
                    router="intelligent_5phase",
                    strategy="cloud_primary_privacy_local_fallback")

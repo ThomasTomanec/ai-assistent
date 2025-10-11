@@ -1,0 +1,28 @@
+# user_config.yaml - Osobní nastavení asistenta
+
+user:
+  name: "Tomáš"
+  nickname: "Tome"
+  language: "cs"
+
+location:
+  city: "Praha"
+  timezone: "Europe/Prague"  # IANA timezone (důležité!)
+  country: "Česká republika"
+
+preferences:
+  temperature_unit: "celsius"
+  time_format: "24h"
+  date_format: "DD.MM.YYYY"
+
+personal:
+  occupation: "Vývojář"
+  interests:
+    - "AI"
+    - "Python"
+    - "Machine Learning"
+
+assistant:
+  personality: "přátelský a profesionální"
+  response_style: "stručný a přesný"
+  use_emojis: false

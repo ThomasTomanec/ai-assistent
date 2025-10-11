@@ -1,29 +1,29 @@
 """
-Cloud AI model handler pro složité dotazy
+Cloud AI model handler - čistá odpovědnost za API komunikaci
 """
 
 import structlog
 import os
 import httpx
-from datetime import datetime
 from openai import OpenAI
-from src.core.ports.i_command_handler import ICommandHandler
+from src.core.ports.i_command_handler import ICommandHandler  # <-- OPRAVENO
+from src.application.services.context_builder import ContextBuilder
 
 logger = structlog.get_logger()
 
 class CloudModelHandler(ICommandHandler):
-    """
-    Handler pro zpracování složitých dotazů pomocí cloudového AI API.
-    Podporuje streaming pro nízkou latenci.
-    """
+    """Handler pro komunikaci s cloudovým AI API"""
 
-    def __init__(self, api_key: str = None, provider: str = "openai", streaming: bool = True):
+    def __init__(self, context_builder: ContextBuilder, api_key: str = None,
+                 provider: str = "openai", streaming: bool = True):
         """
         Args:
+            context_builder: Service pro sestavování kontextu
             api_key: API klíč pro cloudovou službu
             provider: Poskytovatel ('openai', 'anthropic', atd.)
             streaming: Použít streaming pro rychlejší odpovědi
         """
+        self.context_builder = context_builder
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.provider = provider
         self.streaming = streaming
@@ -42,40 +42,23 @@ class CloudModelHandler(ICommandHandler):
         except:
             return False
 
-    def _get_system_prompt(self) -> str:
-        """
-        Vytvoř system prompt s aktuálním datem a časem.
-
-        Returns:
-            System prompt obsahující aktuální datum a čas
-        """
-        now = datetime.now()
-
-        # Český formát data a času
-        day_names = ['Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota', 'Neděle']
-        day_name = day_names[now.weekday()]
-
-        current_datetime = f"{day_name}, {now.day}. {now.month}. {now.year}, {now.hour:02d}:{now.minute:02d}"
-
-        return f"""Jsi inteligentní hlasový asistent. Odpovídej stručně a přesně v češtině.
-
-Aktuální datum a čas: {current_datetime}
-
-Pokud se uživatel ptá na čas, datum nebo den v týdnu, odpověz na základě těchto informací.
-Při odpovědích o času používej 24hodinový formát."""
-
     def process(self, text: str) -> str:
         """
-        Zpracuje složitý dotaz pomocí cloudového AI.
-        Pokud není internet, vrátí placeholder pro lokální fallback.
+        Zpracuje dotaz pomocí cloudového AI.
 
         Args:
             text: Text příkazu
 
         Returns:
-            Odpověď z cloudového modelu nebo placeholder
+            Odpověď z cloudového modelu
         """
-        # Check internet při každém requestu
+        # Zkus rychlou odpověď pro jednoduché časové dotazy
+        quick_answer = self.context_builder.get_quick_time_answer(text)
+        if quick_answer:
+            logger.info("quick_time_answer_provided", query=text[:50])
+            return quick_answer
+
+        # Check internet
         if not self._check_internet():
             logger.warning("cloud_offline_fallback")
             return "[Cloud nedostupný - zkusím lokální model]"
@@ -95,15 +78,15 @@ Při odpovědích o času používej 24hodinový formát."""
             return "[Cloud AI selhalo - zkusím lokální model]"
 
     def _process_openai_streaming(self, text: str) -> str:
-        """
-        Zpracování přes OpenAI API se streamingem.
-        Posílá odpověď průběžně (slovo po slovu).
-        """
+        """Zpracování přes OpenAI API se streamingem"""
         try:
+            # Získej system prompt z context builderu
+            system_prompt = self.context_builder.build_system_prompt()
+
             stream = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text}
                 ],
                 temperature=0.7,
@@ -111,7 +94,6 @@ Při odpovědích o času používej 24hodinový formát."""
                 stream=True
             )
 
-            # Sbírej odpověď průběžně
             full_response = ""
             first_chunk_received = False
 
@@ -136,14 +118,14 @@ Při odpovědích o času používej 24hodinový formát."""
             return "[Cloud AI selhalo - zkusím lokální model]"
 
     def _process_openai(self, text: str) -> str:
-        """
-        Zpracování přes OpenAI API bez streamingu (klasické).
-        """
+        """Zpracování přes OpenAI API bez streamingu"""
         try:
+            system_prompt = self.context_builder.build_system_prompt()
+
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text}
                 ],
                 temperature=0.7,
