@@ -6,7 +6,7 @@ import structlog
 import os
 import httpx
 from openai import OpenAI
-from src.core.ports.i_command_handler import ICommandHandler  # <-- OPRAVENO
+from src.core.ports.i_command_handler import ICommandHandler
 from src.application.services.context_builder import ContextBuilder
 
 logger = structlog.get_logger()
@@ -103,14 +103,13 @@ class CloudModelHandler(ICommandHandler):
                     full_response += content
 
                     if not first_chunk_received:
-                        logger.info("first_chunk_received", latency="low")
+                        logger.debug("first_chunk_received", latency="low")
                         first_chunk_received = True
 
-                    print(content, end="", flush=True)
+                    # ❌ SMAZÁNO: print(content, end="", flush=True)
+                    # Console UI to zobrazí samo
 
-            print()
-            logger.info("streaming_complete", response=full_response[:100], length=len(full_response))
-
+            logger.debug("streaming_complete", response_length=len(full_response))
             return full_response.strip()
 
         except Exception as e:
@@ -133,7 +132,7 @@ class CloudModelHandler(ICommandHandler):
             )
 
             answer = response.choices[0].message.content.strip()
-            logger.info("cloud_model_response", response=answer[:100])
+            logger.debug("cloud_model_response", response_length=len(answer))
             return answer
 
         except Exception as e:

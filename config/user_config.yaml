@@ -1,28 +1,107 @@
-# user_config.yaml - Osobní nastavení asistenta
-
 user:
   name: "Tomáš"
-  nickname: "Tome"
   language: "cs"
 
+# ========================================
+# LOCATION (MANUAL - Radkov)
+# ========================================
 location:
-  city: "Praha"
-  timezone: "Europe/Prague"  # IANA timezone (důležité!)
-  country: "Česká republika"
+  auto_detect: false  # ZMĚNA: Vypnuto auto-detect
+
+  # Manual location
+  manual:
+    city: "Radkov"
+    region: "Moravskoslezský kraj"
+    country: "Česká republika"
+    timezone: "Europe/Prague"
+
+  # Fallback (když by manual selhal)
+  fallback:
+    city: "Praha"
+    country: "Česká republika"
+    timezone: "Europe/Prague"
 
 preferences:
   temperature_unit: "celsius"
   time_format: "24h"
-  date_format: "DD.MM.YYYY"
 
-personal:
-  occupation: "Vývojář"
-  interests:
-    - "AI"
-    - "Python"
-    - "Machine Learning"
-
+# ========================================
+# AI ASSISTANT CONFIGURATION
+# ========================================
 assistant:
-  personality: "přátelský a profesionální"
-  response_style: "stručný a přesný"
-  use_emojis: false
+  name: "Alexa"
+  personality: "přátelský"
+  response_style: "stručný"
+  tone: "casual"
+  wake_word: "Alexa"
+  wake_word_threshold: 0.5
+
+  rules:
+    max_sentences: 3
+    use_emoji: false
+    formality: "ty"
+
+  system_prompt: |
+    Jsi {name}, hlasový asistent pro {user_name}.
+    
+    OSOBNOST:
+    - {personality}, {tone}
+    - Odpovídáš {response_style}, max {max_sentences} větami
+    
+    KONTEXT:
+    Uživatel: {user_name}
+    Poloha: {city}, {country}
+    Čas: {current_time}
+    Datum: {current_date}
+
+# ========================================
+# MODEL CONFIGURATION
+# ========================================
+models:
+  cloud:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.7
+    max_tokens: 150
+    streaming: true
+
+  local:
+    provider: "ollama"
+    model: "llama3.2:3b"
+    temperature: 0.7
+    max_tokens: 150
+    url: "http://localhost:11434"
+
+# ========================================
+# ROUTING STRATEGY
+# ========================================
+routing:
+  strategy: "intelligent"
+
+  use_local_for:
+    - "time_queries"
+    - "date_queries"
+    - "simple_calculations"
+
+  use_cloud_for:
+    - "complex_reasoning"
+    - "creative_tasks"
+    - "knowledge_queries"
+
+  thresholds:
+    local_confidence: 0.8
+    max_local_time: 2.0
+
+# ========================================
+# AUDIO CONFIGURATION
+# ========================================
+audio:
+  wake_word_models:
+    - "alexa"
+  sample_rate: 16000
+  gain: 6.0
+
+  stt:
+    primary: "groq"
+    fallback: "whisper"
+    language: "cs"
