@@ -5,8 +5,8 @@ Context Builder - Sestavuje kontext pro AI modely s dynamickou lokací
 import structlog
 from typing import Optional
 from src.core.config.user_config import UserConfig
-from src.application.services.time_service import TimeService
-from src.application.services.location_service import LocationService
+from src.infrastructure.services.core.time_service import TimeService
+from src.infrastructure.services.core.location_service import LocationService
 
 logger = structlog.get_logger()
 

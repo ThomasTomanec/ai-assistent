@@ -6,8 +6,8 @@ import structlog
 import os
 from dotenv import load_dotenv
 from src.core.config.user_config import get_user_config
-from src.application.services.time_service import TimeService
-from src.application.services.location_service import LocationService
+from src.infrastructure.services.core.time_service import TimeService
+from src.infrastructure.services.core.location_service import LocationService
 from src.application.services.context_builder import ContextBuilder
 from src.application.services.assistant_orchestrator import AssistantOrchestrator
 from src.infrastructure.adapters.ai.cloud_model_handler import CloudModelHandler
