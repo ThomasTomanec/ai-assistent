@@ -41,13 +41,18 @@ class AssistantOrchestrator:
         Returns:
             True when wake word is detected
         """
+        # ✅ Reset detector at start
+        self.wake_word.reset()
+        
         while True:
             try:
                 audio_chunk = await self.audio.read_chunk(self.stream)
                 if self.wake_word.detect(audio_chunk):
                     logger.info("wake_word_detected")
+                    # ✅ Reset immediately after detection
+                    self.wake_word.reset()
                     return True
-                await asyncio.sleep(0.01)  # Prevent CPU hogging
+                await asyncio.sleep(0.01)
             except Exception as e:
                 logger.error("wake_word_error", error=str(e))
                 await asyncio.sleep(0.1)
@@ -66,7 +71,7 @@ class AssistantOrchestrator:
             # Small delay to avoid capturing wake word itself
             await asyncio.sleep(0.3)
             
-            # Record audio
+            # Record audio - ✅ POUZE JEDEN LOG
             logger.info("recording_command", duration=duration)
             audio_data = await self.audio.record_command(duration)
             
@@ -78,7 +83,7 @@ class AssistantOrchestrator:
             # Transcribe
             logger.info("transcribing_audio")
             text = await self.stt.transcribe(audio_data)
-            logger.info("transcription_complete", text=text[:100])  # ← Zkrácený log
+            logger.info("transcription_complete", text=text[:100])
             
             return text
             
@@ -99,7 +104,7 @@ class AssistantOrchestrator:
         if not text or len(text.strip()) == 0:
             return ""
         
-        logger.info("processing_command", text=text[:100])  # ← Zkrácený log
+        logger.info("processing_command", text=text[:100])
         response = self.commands.process(text)
         logger.info("command_processed", response=response)
         

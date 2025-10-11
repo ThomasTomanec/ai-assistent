@@ -46,14 +46,13 @@ class ConsoleUI:
         print("💬 Say your command now (5 seconds)...\n")
         
         # 3. Capture command
-        print("🔄 Processing your command...\n")
         command_text = await self.orchestrator.capture_command()
         
         # 4. Validate command
         if not command_text or len(command_text.strip()) == 0:
             print("❌ No command detected\n")
             print("-"*60 + "\n")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             return
         
         # 5. Show what was heard
@@ -67,5 +66,9 @@ class ConsoleUI:
         print(f"🤖 Bot: {response}\n")
         print("-"*60 + "\n")
         
-        # 8. Cooldown to prevent false triggers
-        await asyncio.sleep(2)
+        # 8. ✅ SMART COOLDOWN: Set speech cooldown instead of fixed wait
+        self.orchestrator.wake_word.set_speech_cooldown()
+        print("✅ Ready for next wake word (say 'Alexa' anytime).\n")
+        
+        # ✅ Krátký cooldown jen pro flush audio bufferu
+        await asyncio.sleep(0.5)
