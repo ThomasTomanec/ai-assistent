@@ -1,22 +1,28 @@
-"""CLI user interface - CLEAN & CLEAR FLOW"""
+"""CLI user interface with streaming support"""
 
 import asyncio
+import sys
 import structlog
 
 logger = structlog.get_logger()
 
 class ConsoleUI:
-    """Clean command-line interface"""
+    """Clean command-line interface with streaming support"""
 
     def __init__(self, orchestrator, user_config):
         self.orchestrator = orchestrator
         self.user_config = user_config
         self.wake_word_name = user_config.get('assistant.wake_word', 'Alexa')
+        self.assistant_name = user_config.get('assistant.name', 'Alexa')
         logger.info("console_ui_initialized", wake_word=self.wake_word_name)
 
     async def run(self):
         """Main UI loop"""
         self._print_header()
+
+        # Set streaming callback
+        self.orchestrator.set_response_callback(self._on_response_chunk)
+
         await self.orchestrator.start()
 
         try:
@@ -38,8 +44,22 @@ class ConsoleUI:
         print("  🔇 Press Ctrl+C to exit\n")
         print("═"*60 + "\n")
 
+    def _on_response_chunk(self, chunk: str, is_final: bool = False):
+        """
+        Callback for streaming response chunks.
+
+        Args:
+            chunk: Text chunk to display
+            is_final: True if this is the last chunk
+        """
+        if chunk:
+            print(chunk, end="", flush=True)
+
+        if is_final:
+            print()  # Newline at end
+
     async def _interaction_loop(self):
-        """Interaction cycle - CLEAR FLOW"""
+        """Interaction cycle - CLEAR FLOW with streaming"""
 
         # 1. WAITING FOR WAKE WORD
         print(f"💤  Say '{self.wake_word_name}' to activate...")
@@ -65,13 +85,19 @@ class ConsoleUI:
         # 5. SHOW USER INPUT
         print(f"👤 You: {command_text}")
 
-        # 6. PROCESS & SHOW RESPONSE
+        # 6. PROCESS & SHOW RESPONSE (streaming!)
         try:
+            # Print assistant prefix
+            print(f"🤖 {self.assistant_name}: ", end="", flush=True)
+
+            # Process (streaming callback will print chunks)
             response = self.orchestrator.process_command(command_text)
-            print(f"🤖 Assistant: {response}\n")
-            print("─"*60 + "\n")
+
+            # Response already printed via callback
+            print("\n" + "─"*60 + "\n")
+
         except Exception as e:
-            print(f"❌ Error: {str(e)}\n")
+            print(f"\n❌ Error: {str(e)}\n")
             print("─"*60 + "\n")
             logger.error("command_error", error=str(e), exc_info=True)
 

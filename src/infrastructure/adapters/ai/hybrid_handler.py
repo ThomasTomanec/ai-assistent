@@ -1,10 +1,10 @@
 """
-Hybrid AI Handler s inteligentním 5-fázovým routerem
+Hybrid AI Handler with streaming callback propagation
 Cloud-primary strategie: Rychlost + Soukromí + Offline fallback
-Vylepšeno: lepší error handling, custom exceptions
 """
 
 import structlog
+from typing import Callable
 from src.core.ports.i_command_handler import ICommandHandler
 from src.infrastructure.adapters.ai.local_model_handler import (
     LocalModelHandler,
@@ -22,7 +22,7 @@ logger = structlog.get_logger()
 
 class HybridAIHandler(ICommandHandler):
     """
-    Hybrid handler s cloud-primary strategií.
+    Hybrid handler s cloud-primary strategií a streaming support.
 
     Routing strategie:
     - Fáze 1: PII detection → FORCE_LOCAL (ochrana soukromí)
@@ -42,9 +42,27 @@ class HybridAIHandler(ICommandHandler):
         self.router = IntelligentRouter(user_preference=user_preference)
         self.local_handler = local_handler
         self.cloud_handler = cloud_handler
+        self.response_callback = None
         logger.info("hybrid_ai_handler_initialized",
                    router="intelligent_5phase",
                    strategy="cloud_primary_privacy_local_fallback")
+
+    def set_response_callback(self, callback: Callable):
+        """
+        Set callback for streaming response chunks.
+        Propagates to underlying handlers.
+
+        Args:
+            callback: Function(chunk: str, is_final: bool)
+        """
+        self.response_callback = callback
+
+        # Propagate to handlers
+        if hasattr(self.cloud_handler, 'set_response_callback'):
+            self.cloud_handler.set_response_callback(callback)
+
+        if hasattr(self.local_handler, 'set_response_callback'):
+            self.local_handler.set_response_callback(callback)
 
     def process(self, text: str, asr_confidence: float = 1.0) -> str:
         """

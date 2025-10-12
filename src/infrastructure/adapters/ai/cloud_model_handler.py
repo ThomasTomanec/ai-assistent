@@ -1,6 +1,6 @@
 """
-Cloud AI model handler - čistá odpovědnost za API komunikaci
-Vylepšeno: config z UserConfig, retry logic, lazy internet check
+Cloud AI model handler with streaming callback support
+Vylepšeno: visual streaming, retry logic, lazy internet check
 """
 
 import structlog
@@ -8,7 +8,7 @@ import os
 import httpx
 import time
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Callable
 from openai import OpenAI
 from src.core.ports.i_command_handler import ICommandHandler
 from src.application.services.context_builder import ContextBuilder
@@ -26,7 +26,8 @@ class CloudModelHandler(ICommandHandler):
     """Handler pro komunikaci s cloudovým AI API"""
 
     def __init__(self, context_builder: ContextBuilder, api_key: str = None,
-                 provider: str = "openai", streaming: bool = True, user_config=None):
+                 provider: str = "openai", streaming: bool = True,
+                 user_config=None, response_callback: Callable = None):
         """
         Args:
             context_builder: Service pro sestavování kontextu
@@ -34,12 +35,14 @@ class CloudModelHandler(ICommandHandler):
             provider: Poskytovatel ('openai', 'anthropic', atd.)
             streaming: Použít streaming pro rychlejší odpovědi
             user_config: UserConfig instance pro načítání konfigurace
+            response_callback: Callback pro streaming chunks (chunk: str, is_final: bool)
         """
         self.context_builder = context_builder
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.provider = provider
         self.streaming = streaming
         self.user_config = user_config
+        self.response_callback = response_callback
 
         # Load config values
         self._load_config()
@@ -56,6 +59,10 @@ class CloudModelHandler(ICommandHandler):
                    provider=provider,
                    streaming=streaming,
                    model=self.model)
+
+    def set_response_callback(self, callback: Callable):
+        """Set callback for streaming response chunks"""
+        self.response_callback = callback
 
     def _load_config(self) -> None:
         """Load configuration from UserConfig"""
@@ -206,6 +213,14 @@ class CloudModelHandler(ICommandHandler):
                     if not first_chunk_received:
                         logger.debug("first_chunk_received", latency="low")
                         first_chunk_received = True
+
+                    # Call streaming callback for visual feedback
+                    if self.response_callback:
+                        self.response_callback(content, is_final=False)
+
+            # Final callback
+            if self.response_callback:
+                self.response_callback("", is_final=True)
 
             logger.debug("streaming_complete", response_length=len(full_response))
             return full_response.strip()
