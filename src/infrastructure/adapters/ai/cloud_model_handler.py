@@ -1,6 +1,8 @@
+# src/infrastructure/adapters/ai/cloud_model_handler.py
+
 """
 Cloud AI model handler with streaming callback support
-Vylepšeno: visual streaming, retry logic, lazy internet check
+Vylepšeno: Tichý fallback, clean production logging, smart retry
 """
 
 import structlog
@@ -9,7 +11,9 @@ import httpx
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Callable
+
 from openai import OpenAI
+
 from src.core.ports.i_command_handler import ICommandHandler
 from src.application.services.context_builder import ContextBuilder
 from src.core.exceptions import AIError
@@ -47,11 +51,14 @@ class CloudModelHandler(ICommandHandler):
         # Load config values
         self._load_config()
 
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=self.api_key)
+        # Initialize OpenAI client (s error handling)
+        if not self.api_key:
+            logger.warning("cloud_no_api_key")
+            self.client = None
+        else:
+            self.client = OpenAI(api_key=self.api_key)
 
         # Internet check (lazy)
-        self._internet_checked = False
         self._internet_cache_time = None
         self.internet_available = None
 
@@ -96,14 +103,14 @@ class CloudModelHandler(ICommandHandler):
                 logger.debug("internet_check_cache_hit", available=self.internet_available)
                 return self.internet_available
 
-        # Perform check
+        # Perform check (tichý)
         try:
             httpx.get("https://api.openai.com", timeout=self.internet_check_timeout)
             self.internet_available = True
             logger.debug("internet_check_success")
-        except (httpx.RequestError, httpx.TimeoutException) as e:
+        except (httpx.RequestError, httpx.TimeoutException):
             self.internet_available = False
-            logger.warning("internet_check_failed", error=str(e))
+            logger.debug("internet_check_failed")  # DEBUG místo WARNING
 
         # Update cache
         self._internet_cache_time = datetime.now()
@@ -122,9 +129,14 @@ class CloudModelHandler(ICommandHandler):
         Raises:
             CloudProviderUnavailableError: Pokud cloud není dostupný
         """
-        # Check internet
+        # Check client
+        if not self.client:
+            logger.debug("cloud_no_client")
+            raise CloudProviderUnavailableError("No API key configured")
+
+        # Check internet (tichý)
         if not self._check_internet():
-            logger.warning("cloud_offline")
+            logger.debug("cloud_offline")  # DEBUG místo WARNING
             raise CloudProviderUnavailableError("Internet connection not available")
 
         logger.info("processing_with_cloud_model",
@@ -143,7 +155,9 @@ class CloudModelHandler(ICommandHandler):
 
         except CloudProviderUnavailableError:
             raise  # Re-raise to be handled by caller
+
         except Exception as e:
+            # Jen critical errors jako ERROR
             logger.error("cloud_model_error", error=str(e), error_type=type(e).__name__)
             raise AIError(f"Cloud AI processing failed: {e}") from e
 
@@ -166,6 +180,7 @@ class CloudModelHandler(ICommandHandler):
         for attempt in range(max_retries):
             try:
                 return func()
+
             except (httpx.RequestError, httpx.TimeoutException) as e:
                 last_error = e
 
@@ -173,13 +188,15 @@ class CloudModelHandler(ICommandHandler):
                     raise
 
                 wait_time = 2 ** attempt  # 1s, 2s, 4s
-                logger.warning(
+
+                # DEBUG místo WARNING (je to normální retry)
+                logger.debug(
                     "cloud_api_retry",
                     attempt=attempt + 1,
                     max_retries=max_retries,
-                    wait_seconds=wait_time,
-                    error=str(e)
+                    wait_seconds=wait_time
                 )
+
                 time.sleep(wait_time)
 
         raise last_error
@@ -228,7 +245,7 @@ class CloudModelHandler(ICommandHandler):
         try:
             return self._process_with_retry(_make_request)
         except Exception as e:
-            logger.error("openai_streaming_error", error=str(e))
+            logger.debug("openai_streaming_error", error=str(e))  # DEBUG
             raise AIError(f"OpenAI streaming failed: {e}") from e
 
     def _process_openai(self, text: str) -> str:
@@ -254,5 +271,5 @@ class CloudModelHandler(ICommandHandler):
         try:
             return self._process_with_retry(_make_request)
         except Exception as e:
-            logger.error("openai_api_error", error=str(e))
+            logger.debug("openai_api_error", error=str(e))  # DEBUG
             raise AIError(f"OpenAI API failed: {e}") from e

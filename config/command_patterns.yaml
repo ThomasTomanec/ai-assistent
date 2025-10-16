@@ -1,0 +1,129 @@
+# config/command_patterns.yaml
+
+# Czech command detection patterns
+patterns:
+  command_verbs:
+    # Actions - zapnout/vypnout
+    - zapni
+    - vypni
+    - nastav
+    - změň
+    - přepni
+    - uprav
+
+    # Intensity
+    - zvyš
+    - sniž
+    - zesil
+    - ztlum
+
+    # Media control
+    - spusť
+    - zastav
+    - pauza
+    - pokračuj
+    - přehraj
+    - pusť
+    - zopakuj
+    - přeskoč
+
+    # Communication
+    - zavolej
+    - pošli
+    - napiš
+    - vytvoř
+    - smaž
+    - odstraň
+
+    # Information retrieval
+    - najdi
+    - vyhledej
+    - ukaž
+    - zobraz
+    - otevři
+    - zavři
+
+    # Conversation
+    - řekni
+    - povídej
+    - vysvětli
+    - definuj
+    - popište
+
+  question_words:
+    - kolik
+    - jaký
+    - jaká
+    - jaké
+    - který
+    - která
+    - které
+    - kde
+    - kdy
+    - kdo
+    - co
+    - jak
+    - proč
+    - čí
+    - kam
+
+  conversation_indicators:
+    # Uncertainty
+    - myslím
+    - asi
+    - nevím
+    - třeba
+    - možná
+    - snad
+
+    # Filler words
+    - taky
+    - také
+    - teda
+    - prostě
+    - vůbec
+    - docela
+    - vlastně
+    - takže
+    - protože
+
+  sentence_enders:
+    - "."
+    - "?"
+    - "!"
+
+# Scoring weights
+scoring:
+  command_verb_start: 3      # Command verb na začátku
+  question_word_start: 3     # Question word na začátku
+  command_verb_anywhere: 2   # Command verb kdekoli
+  question_word_anywhere: 2  # Question word kdekoli
+  conversation_penalty: -2   # Conversation indicators
+
+  # Thresholds
+  command_threshold: 3       # >= 3 = pravděpodobně příkaz
+  conversation_threshold: -1 # <= -1 = pravděpodobně konverzace
+
+  # Length limits
+  min_command_length: 5      # Minimální délka příkazu (znaky)
+  max_command_words: 50      # Maximální počet slov v příkazu
+  conversation_word_threshold: 8  # Více než X slov bez keywords = konverzace
+
+# Language-specific settings
+language: cs
+case_sensitive: false
+
+# Custom rules (pro speciální případy)
+custom_rules:
+  # Přidej specifické fráze které jsou vždy příkazy
+  always_commands:
+    - "kolik je hodin"
+    - "jaké je počasí"
+    - "zapni světla"
+    - "vypni světla"
+
+  # Fráze které NEJSOU příkazy
+  never_commands:
+    - "co myslíš"
+    - "já nevím"
+    - "možná jo"

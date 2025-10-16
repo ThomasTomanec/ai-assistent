@@ -1,3 +1,5 @@
+# src/core/config/container.py
+
 """
 Dependency Injection Container - Refactored for maintainability
 """
@@ -25,6 +27,7 @@ from src.infrastructure.adapters.ai.hybrid_handler import HybridAIHandler
 
 # Audio adapters
 from src.infrastructure.adapters.audio.sounddevice_capture import SoundDeviceCapture
+from src.infrastructure.adapters.audio.vad import VADRecorder, RecordingConfig
 from src.infrastructure.adapters.wake_word.openwakeword_adapter import OpenWakeWordAdapter
 from src.infrastructure.adapters.stt.hybrid_stt_adapter import HybridSTTAdapter
 
@@ -37,9 +40,7 @@ logger = structlog.get_logger()
 class Container:
     """
     Dependency Injection Container
-
     Manages lifecycle and dependencies of all application components.
-    Initialization is split into logical steps for better maintainability.
     """
 
     def __init__(self):
@@ -65,6 +66,7 @@ class Container:
 
             # Step 5: Audio pipeline
             self.audio_input = self._create_audio_input()
+            self.vad_recorder = self._create_vad_recorder()
             self.wake_word_detector = self._create_wake_word_detector()
             self.stt_engine = self._create_stt_engine()
 
@@ -85,7 +87,6 @@ class Container:
         """Load environment variables from .env file"""
         try:
             load_dotenv()
-
             openai_key_present = bool(os.getenv("OPENAI_API_KEY"))
             groq_key_present = bool(os.getenv("GROQ_API_KEY"))
 
@@ -95,7 +96,6 @@ class Container:
                 groq_key_present=groq_key_present
             )
 
-            # Warning if no API keys are configured
             if not (openai_key_present or groq_key_present):
                 logger.warning(
                     "no_api_keys_configured",
@@ -104,7 +104,6 @@ class Container:
 
         except Exception as e:
             logger.error("environment_load_failed", error=str(e))
-            # Don't fail - environment variables might be set in OS
             pass
 
     def _load_user_config(self) -> UserConfig:
@@ -134,15 +133,11 @@ class Container:
     def _create_time_service(self) -> TimeService:
         """Create time service with appropriate timezone"""
         try:
-            # Get timezone from location service (business logic moved there)
             timezone = self.location_service.get_timezone(self.user_config)
-
             service = TimeService(timezone=timezone)
             logger.debug("time_service_created", timezone=timezone)
             return service
-
         except Exception as e:
-            # Fallback to Prague timezone
             logger.warning("time_service_fallback_to_default", error=str(e))
             return TimeService(timezone='Europe/Prague')
 
@@ -177,7 +172,7 @@ class Container:
 
             if not api_key:
                 logger.warning("openai_api_key_missing",
-                             message="Cloud AI may not work without API key")
+                               message="Cloud AI may not work without API key")
 
             handler = CloudModelHandler(
                 context_builder=self.context_builder,
@@ -185,9 +180,9 @@ class Container:
                 provider=provider,
                 streaming=streaming
             )
+
             logger.debug("cloud_handler_created", provider=provider, streaming=streaming)
             return handler
-
         except Exception as e:
             logger.error("cloud_handler_creation_failed", error=str(e))
             raise
@@ -206,7 +201,6 @@ class Container:
         """Create hybrid AI handler with intelligent routing"""
         try:
             strategy = self.user_config.get('routing.strategy', 'intelligent')
-
             handler = HybridAIHandler(
                 cloud_handler=self.cloud_handler,
                 local_handler=self.local_handler,
@@ -214,7 +208,6 @@ class Container:
             )
             logger.debug("hybrid_handler_created", strategy=strategy)
             return handler
-
         except Exception as e:
             logger.error("hybrid_handler_creation_failed", error=str(e))
             raise
@@ -226,7 +219,6 @@ class Container:
     def _create_audio_input(self) -> SoundDeviceCapture:
         """Create audio input device"""
         try:
-            # Get audio config with defaults
             audio_config = self.user_config.get('audio', {})
 
             device = SoundDeviceCapture(
@@ -235,15 +227,72 @@ class Container:
                 chunk_size=audio_config.get('chunk_size', 1280),
                 gain=audio_config.get('gain', 6.0)
             )
+
             logger.debug(
                 "audio_input_created",
                 sample_rate=audio_config.get('sample_rate', 16000),
                 gain=audio_config.get('gain', 6.0)
             )
-            return device
 
+            return device
         except Exception as e:
             logger.error("audio_input_creation_failed", error=str(e))
+            raise
+
+    def _create_vad_recorder(self) -> VADRecorder:
+        """
+        Create VAD recorder with ULTRA-FAST configuration (0.3s trailing).
+        Clean production version without debug banner.
+        """
+        try:
+            vad_config_dict = self.user_config.get('audio.vad', {})
+
+            # ULTRA-FAST defaults - overridable from config
+            vad_config = RecordingConfig(
+                # Duration (ULTRA-FAST)
+                max_duration=vad_config_dict.get('max_duration', 15.0),
+                silence_duration=vad_config_dict.get('silence_duration', 1.0),  # Initial
+                quick_silence=vad_config_dict.get('quick_silence', 0.3),  # ⚡ ULTRA-FAST: 0.3s
+                min_speech_frames=vad_config_dict.get('min_speech_frames', 3),  # ⚡ ULTRA-LOW: 3
+
+                # Proximity - DISABLED for production
+                proximity_enabled=vad_config_dict.get('proximity_enabled', False),
+                proximity_threshold=vad_config_dict.get('proximity_threshold', 2.5),
+                proximity_margin=vad_config_dict.get('proximity_margin', 0.7),
+
+                # Quality - LIBERAL for production
+                min_volume_threshold=vad_config_dict.get('min_volume_threshold', 0.0),
+                max_volume_threshold=vad_config_dict.get('max_volume_threshold', 1.0),
+                noise_gate_enabled=vad_config_dict.get('noise_gate_enabled', False),
+                noise_gate_ratio=vad_config_dict.get('noise_gate_ratio', 1.0),
+
+                # VAD (legacy, not used)
+                vad_aggressiveness=vad_config_dict.get('vad_aggressiveness', 0),
+                sample_rate=self.user_config.get('audio.sample_rate', 16000),
+                frame_duration_ms=vad_config_dict.get('frame_duration_ms', 30),
+
+                # Advanced
+                adaptive_timeout_enabled=vad_config_dict.get('adaptive_timeout', True)
+            )
+
+            recorder = VADRecorder(
+                audio_input=self.audio_input,
+                config=vad_config
+            )
+
+            # Clean logging without banner
+            logger.debug(
+                "vad_recorder_created_ultrafast",
+                trailing_silence=vad_config.quick_silence,
+                initial_silence=vad_config.silence_duration,
+                min_speech_frames=vad_config.min_speech_frames,
+                vad_type="double_threshold_rms_0.3s"
+            )
+
+            return recorder
+
+        except Exception as e:
+            logger.error("vad_recorder_creation_failed", error=str(e))
             raise
 
     def _create_wake_word_detector(self) -> OpenWakeWordAdapter:
@@ -256,13 +305,14 @@ class Container:
                 keywords=keywords,
                 threshold=threshold
             )
+
             logger.debug(
                 "wake_word_detector_created",
                 keywords=keywords,
                 threshold=threshold
             )
-            return detector
 
+            return detector
         except Exception as e:
             logger.error("wake_word_detector_creation_failed", error=str(e))
             raise
@@ -276,21 +326,22 @@ class Container:
 
             if not groq_api_key:
                 logger.warning("groq_api_key_missing",
-                             message="STT will fallback to local Whisper")
+                               message="STT will fallback to local Whisper")
 
             engine = HybridSTTAdapter(
                 groq_api_key=groq_api_key,
                 whisper_model=whisper_model,
                 language=language
             )
+
             logger.debug(
                 "stt_engine_created",
                 whisper_model=whisper_model,
                 language=language,
                 has_groq_key=bool(groq_api_key)
             )
-            return engine
 
+            return engine
         except Exception as e:
             logger.error("stt_engine_creation_failed", error=str(e))
             raise
@@ -306,11 +357,13 @@ class Container:
                 audio_input=self.audio_input,
                 wake_word_detector=self.wake_word_detector,
                 stt_engine=self.stt_engine,
-                command_handler=self.command_handler
+                command_handler=self.command_handler,
+                vad_recorder=self.vad_recorder,
+                vad_config=None
             )
+
             logger.debug("orchestrator_created")
             return orchestrator
-
         except Exception as e:
             logger.error("orchestrator_creation_failed", error=str(e))
             raise
